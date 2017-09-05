@@ -1,4 +1,4 @@
-show_plot = 1
+show_plot = 0
 
 {load_file("nrngui.hoc")}
 
@@ -17,6 +17,7 @@ print "##### olm started #####"
 {load_file("../cells/class_olmcell.hoc")}
 
 CELL = new olmcell(0,0,-1)
+v_init = -67  // set to eleakval
 
 objectvar stim
 CELL.soma {

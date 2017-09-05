@@ -89,6 +89,30 @@
             <segmentGroup id="axon_group">
                 <include segmentGroup="axon_0"/>
             </segmentGroup>
+            <segmentGroup id="dendrite_list_50_to_200">
+                <notes>segmentGroup added by A.Ecker to specify connection targets for opencortex (not added to segGroup id="all")</notes>
+                <member segment="3"/>
+                <member segment="5"/>
+            </segmentGroup>
+            <segmentGroup id="dendrite_list_200_to_1000">
+                <notes>segmentGroup added by A.Ecker to specify connection targets for opencortex (not added to segGroup id="all")</notes>
+                <member segment="4"/>
+                <member segment="6"/>
+            </segmentGroup>
+            <segmentGroup id="dendrite_list_10_to_1000">
+                <notes>segmentGroup added by A.Ecker to specify connection targets for opencortex (not added to segGroup id="all")</notes>
+                <member segment="3"/>
+                <member segment="4"/>
+                <member segment="5"/>
+                <member segment="6"/>
+            </segmentGroup>
+            <segmentGroup id="dendrite_list_100_to_1000">
+                <notes>segmentGroup added by A.Ecker to specify connection targets for opencortex (not added to segGroup id="all")</notes>
+                <member segment="3"/>
+                <member segment="4"/>
+                <member segment="5"/>
+                <member segment="6"/>
+            </segmentGroup>
         </morphology>
         <biophysicalProperties id="biophys">
             <membraneProperties>
