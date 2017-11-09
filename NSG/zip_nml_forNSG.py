@@ -2,22 +2,23 @@
 # -*- coding: utf8 -*-
 """
 creates .zip archive from the necessary nml files (to sends NetPyNE jobs to NSG REST API afterwards)
-author: András Ecker, last update 08.2017
+authors: András Ecker, Padraig Gleeson last update 09.2017
 """
 
 import os
+import re
 import sys
 import shutil
 import zipfile
-from subprocess import call
+from pyneuroml import pynml
 
 basePath = os.path.sep.join(os.path.abspath(__file__).split(os.path.sep)[:-2])
 nmlFolder = os.path.join(basePath, "NeuroML2")
 
 
-def create_folder(zipName, runName, networkName, copysyn=False):
+def create_folder(scale, format_, zipName, networkName, copysyn=False):
     """copies the necessary files to a subfolder (in the NSG prefered way)"""
-    
+
     # create directory (if exist it will delete and recreate)
     mainDirName = os.path.join(basePath, "NSG", zipName)
     if os.path.isdir(mainDirName):
@@ -35,20 +36,42 @@ def create_folder(zipName, runName, networkName, copysyn=False):
         if file_.endswith(".cell.nml"):
             shutil.copy2(os.path.join(nmlFolder, "cells", file_), os.path.join(mainDirName, "cells", file_))
     # cp synapses
-    if copysyn:   # only for regenerated network (the one generated from scratch in oc. has the synapses inside the .net.nml file)    
+    if copysyn:   # only for regenerated network (the one generated from scratch in oc. has the synapses inside the .net.nml file)
         os.mkdir(os.path.join(mainDirName, "synapses"))
         shutil.copy2(os.path.join(nmlFolder, "synapses", "exp2Synapses.synapse.nml"),
                      os.path.join(mainDirName, "synapses", "exp2Synapses.synapse.nml"))
         shutil.copy2(os.path.join(nmlFolder, "synapses", "customGABASynapses.synapse.nml"),
-                     os.path.join(mainDirName, "synapses", "customGABASynapses.synapse.nml")) 
+                     os.path.join(mainDirName, "synapses", "customGABASynapses.synapse.nml"))
+                     
     # cp network and LEMS file
     os.mkdir(os.path.join(mainDirName, "network"))
-    shutil.copy2(os.path.join(nmlFolder, "network", "%s.net.nml"%networkName),
-                 os.path.join(mainDirName, "network", "%s.net.nml"%networkName))
-    shutil.copy2(os.path.join(nmlFolder, "network", "LEMS_%s.xml"%networkName),
-                 os.path.join(mainDirName, "network", "LEMS_%s.xml"%networkName))
+    shutil.copy2(os.path.join(nmlFolder, "network", "%s.net.nml%s"%(networkName, ".h5" if format_=="hdf5" else "")),
+                 os.path.join(mainDirName, "network", "%s.net.nml%s"%(networkName, ".h5" if format_=="hdf5" else "")))
+    shutil.copy2(os.path.join(nmlFolder, "network", "LEMS_%s%s.xml"%(networkName, "_h5" if format_=="hdf5" else "")),
+                 os.path.join(mainDirName, "network", "LEMS_%s%s.xml"%(networkName, "_h5" if format_=="hdf5" else "")))
+    # cp popsize data (easier to analyse results afterwards)
+    shutil.copy2(os.path.join(nmlFolder, "network", "popsize_scale%s.txt"%scale),
+                 os.path.join(mainDirName, "network", "popsize_scale%s.txt"%scale))
                  
     return mainDirName
+    
+
+def create_init(mainDirName, format_, networkName):
+    """helper function to create init.py file called by NSG"""
+    
+    s = '#!/usr/bin/python\n'+ \
+        '"""init.py to call NetPyNE generated simulation from the top level (not from network folder)"""\n\n' + \
+        'import os\n' + \
+        'import sys\n\n' + \
+        'os.chdir("network")\n' + \
+        'sys.path.append(".")\n\n' + \
+        'import LEMS_%s%s_netpyne'%(networkName, "_h5" if format_=="hdf5" else "")
+        
+    with open(os.path.join(mainDirName, "init.py"), "w") as f_:
+        f_.write(s)
+
+    with open(os.path.join(mainDirName, "network", "__init__.py"), "w") as f_:
+        f_.write(" ")
 
 
 def create_zip(zipName, mainDirName, rm=True):
@@ -72,27 +95,26 @@ def create_zip(zipName, mainDirName, rm=True):
 if __name__ == "__main__":
 
     try:
-        runName = sys.argv[1]    
+        scale = sys.argv[1]
     except:
-        runName = "TestRun_nml"
-    try:
-        networkName = sys.argv[2]    
-    except:
-        networkName = "HippocampalNet_scale100000_oc"
+        scale = 100000
+    format_ = "hdf5" if scale < 2000 else "xml"
+
+    zipName = "CA1_nml_scale%s"%scale
+    networkName = "HippocampalNet_scale%s_oc"%scale  # change this to rerun NEURON version instead of oc. generated!
         
-    zipName = "CA1_nml"
-    
-    mainDirName = create_folder(zipName, runName, networkName, copysyn=False)
+    mainDirName = create_folder(scale, format_, zipName, networkName, copysyn=False)
                
     # generate NetPyNE simulation
-    call("./jnml_netpyne.sh %s %s"%(zipName, networkName), shell=True)
+    pynml.run_jneuroml("", "LEMS_%s%s.xml"%(networkName, "_h5" if format_=="hdf5" else ""), "-netpyne",
+                       max_memory="12G", exec_in_dir=os.path.join(mainDirName, "network"), verbose=True)  # increase heap size if necessary!
     
-    # create init.py and call generated simulation
-    s = '#!/usr/bin/python\n"""hacky init.py to call NetPyNE generated simulation from the top level (not from network/ folder)"""\n\n'\
-    'import os\nfrom subprocess import call\n\n'\
-    'os.chdir("network")\ncall("python LEMS_%s_netpyne.py", shell=True)'%networkName
-    with open(os.path.join(mainDirName, "init.py"), "w") as f_:
-        f_.write(s)
+    # move .mod files into root (for NSG)                            
+    for file_ in os.listdir(os.path.join(mainDirName, "network")):
+        if file_.endswith(".mod"):
+            shutil.move(os.path.join(mainDirName, "network", file_), os.path.join(mainDirName, file_))  # change move to copy2 if you want to test locally...
+    
+    create_init(mainDirName, format_, networkName)
     
     create_zip(zipName, mainDirName, rm=False)
     

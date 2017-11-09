@@ -109,7 +109,7 @@ def plot_SDF(SDF, f, Pxx, runName):
     ax.plot(plotT, plotSDF, "b-")
     #ax.set_xlim([0, simduration])
     ax.set_xlim([50, simduration])
-    ax.set_title("Spike Density Function (rate) of PCs")
+    ax.set_title("Spike Density Function (Rate) of PCs (without initial transient)")
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("SDF (Hz)")
     
@@ -119,7 +119,7 @@ def plot_SDF(SDF, f, Pxx, runName):
     ax2.plot(fTheta, PxxTheta, "r-", marker="o", lw=2, label="theta (5-10Hz)")
     #ax2.set_xlim([0, nyq])
     ax2.set_xlim([0, 100])
-    ax2.set_title("Power Spectrum Density of SDF")
+    ax2.set_title("Power Spectrum Density of SDF (including initial transient)")
     ax2.set_xlabel("Frequency (Hz)")
     ax2.set_ylabel("PSD (dB)")
     ax2.legend()
@@ -166,8 +166,8 @@ def plot_rasters(dSpikeTimes, dSpikingNeurons, dIDx, simduration, runName):
                  "ngf":[ax8, "#DA70D6", "NGF."]}  # dummy dict to reproduce the same figure layout ...   
     
     for cell_type, spikeTimes in dSpikeTimes.iteritems():
-        spikingNeurons = dSpikingNeurons[cell_type]; ax, col, ylab = dSubplots[cell_type]; idx = dIDx[cell_type]        
-        ax.scatter(spikeTimes, spikingNeurons, color=col, marker='.', s=0.8)
+        spikingNeurons = dSpikingNeurons[cell_type]; ax, col, ylab = dSubplots[cell_type]; idx = dIDx[cell_type]    
+        ax.scatter(spikeTimes, spikingNeurons, color=col, marker='.', s=7.5)
         ax.set_ylabel(ylab, rotation=0, labelpad=25, color=col); ax.set_ylim([idx[0], idx[-1]])
         if simduration > 1000:
             ax.set_xlim([simduration/2-500, simduration/2+500])

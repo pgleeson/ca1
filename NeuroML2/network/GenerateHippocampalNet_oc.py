@@ -3,7 +3,7 @@
 """ 
 Creates a NeuroML2 version of the hippocampal network by Marianne Bezaire using opencortex
 (by reproducing the cell placement and the connectivity)
-Authors: András Ecker, Padraig Gleeson, last update: 08.2017
+Authors: András Ecker, Padraig Gleeson, last update: 09.2017
 """
 
 import os
@@ -36,6 +36,7 @@ def helper_getcelltype(cell_name):
         return "poolosyn"
     else:
         return cell_name[:-4]
+
 
 def get_popdata(numData):
     """reads in cell numbers from config file"""
@@ -145,6 +146,21 @@ def helper_popsize(pop_size, scale):
             return 1
     else:
         return pop_size
+        
+        
+def write_popinfo(dPops, scale):
+    """writes out size of the populations"""
+    
+    with open("popsize_scale%s.txt"%scale, "w") as f:
+        f.write("popname, number of cells\n")
+    
+        for cell_type, pop in dPops.iteritems():
+            popsize = pop.get_size()
+            if cell_type not in ["ca3", "ec"]:
+                line = "pop_%s: %s\n"%(cell_type, popsize)
+            else:
+                line = "(stim) pop_%s: %s\n"%(cell_type, popsize)
+            f.write(line)
 
 
 # helper functions (mostly to process config files)
@@ -162,20 +178,24 @@ def add_pop(nml_doc, network, scale, cell_type, pop_size, layer, duration=None):
         return oc.add_population_in_rectangular_region(network,
                                                        pop_id="pop_%s"%cell_type, cell_id="%scell"%cell_type,
                                                        size=pop_size,
-                                                       x_min=0, y_min=0, z_min=z_min,
+                                                       x_min=0, y_min=z_min, z_min=0,  # y-z changed on OSB...
                                                        #x_size=4000/np.sqrt(scale), y_size=1000/np.sqrt(scale), z_size=z_size,
-                                                       x_size=4000, y_size=1000, z_size=z_size,  # don't scale volume to get better visualization
+                                                       x_size=4000, y_size=z_size, z_size=1000,  # don't scale volume to get better visualization; # y-z changed on OSB...
                                                        color=helper_getcolor(cell_type))
     else:
         spike_gen = oc.add_spike_source_poisson(nml_doc, id="stim_%s"%cell_type,
                                                 start="0ms", duration="%fms"%duration, rate="0.65Hz")  # duration used only here
         
+        # add outer stimulations outside of the slice... (to get better visualization on OSB)
+        if cell_type == "ca3":
+            x_min = 0
+        elif cell_type == "ec":
+            x_min = 3900
         return oc.add_population_in_rectangular_region(network,
                                                        pop_id="pop_%s"%cell_type, cell_id=spike_gen.id,
                                                        size=pop_size,
-                                                       x_min=0, y_min=0, z_min=z_min,
-                                                       #x_size=4000/np.sqrt(scale), y_size=1000/np.sqrt(scale), z_size=z_size,
-                                                       x_size=4000, y_size=1000, z_size=z_size,  # don't scale volume to get better visualization
+                                                       x_min=x_min, y_min=500, z_min=450,  # y-z changed on OSB...
+                                                       x_size=100, y_size=100, z_size=100,
                                                        color=helper_getcolor(cell_type))
 
 
@@ -247,12 +267,13 @@ def add_proj(nml_doc, network, projID,
     return proj
                                     
                                       
-def generate_hippocampal_net(networkID, scale=1000, numData=101, connData=430, synData=120,
-                             generate_LEMS=True, duration=100, dt=0.01):
+def generate_hippocampal_net(networkID, scale=100000, duration=100, numData=101, 
+                             connData=430, synData=120, addSyns=True, format_="xml"):                                 
     """generates hippocampal network, by reproducing the placement, connectivity and scaling of the Bezaire network""" 
   
-    if scale > 1000:
-        warnings.warn("***** Scaling down more then 1000x alters both population size and the connectivity seriously! *****")
+    if scale > 2000:
+        warnings.warn("***** Scaling down more then 2000x alters both population size and the connectivity seriously! *****")
+        
     
     cell_types = ["axoaxonic", "bistratified", "cck", "ivy", "ngf", "olm", "poolosyn", "pvbasket", "sca"]
     
@@ -278,95 +299,108 @@ def generate_hippocampal_net(networkID, scale=1000, numData=101, connData=430, s
             num_cells += pop.get_size()       
         
     print("Populations created; #cells:%i (without stimulating 'cells')"%num_cells)
+    write_popinfo(dPops, scale)
     
     
     # connect populations
-    dSyns = get_projdata(connData, synData)
-    num_cons = 0
-    for projID, props in dSyns.iteritems():
-        precell_type = props["precell_type"]; postcell_type = props["postcell_type"]  # just to get populations from pop dictionary 
-        prepop = dPops[precell_type]; postpop = dPops[postcell_type]               
-        if "tau_rise_A" not in props:  # single synapse
-            proj = add_proj(nml_doc, network,
-                            projID, prepop, postpop,
-                            tau_rise=[props["tau_rise"]], tau_decay=[props["tau_decay"]], e_rev=[props["e_rev"]],
-                            weight=props["weight"], ncons=props["ncons"], nsyns=props["nsyns"],
-                            post_seg_group=props["post_seg_group"])
-        else:  # boundled synapse
-            proj = add_proj(nml_doc, network,
-                            projID, prepop, postpop,
-                            tau_rise=[props["tau_rise_A"], props["tau_rise_B"]],
-                            tau_decay=[props["tau_decay_A"], props["tau_decay_B"]],
-                            e_rev=[props["e_rev_A"], props["e_rev_B"]],
-                            weight=props["weight"], ncons=props["ncons"], nsyns=props["nsyns"],
-                            post_seg_group=props["post_seg_group"])            
-        num_cons += len(proj[0].connection_wds)
-                                    
-    print("Cells connected; #connections:%i "%num_cons)
+    if addSyns:  # easier to visualize on OSB without synapses...
+        dSyns = get_projdata(connData, synData)
+        num_cons = 0
+        for projID, props in dSyns.iteritems():
+            precell_type = props["precell_type"]; postcell_type = props["postcell_type"]  # just to get populations from pop dictionary 
+            prepop = dPops[precell_type]; postpop = dPops[postcell_type]               
+            if "tau_rise_A" not in props:  # single synapse
+                proj = add_proj(nml_doc, network,
+                                projID, prepop, postpop,
+                                tau_rise=[props["tau_rise"]], tau_decay=[props["tau_decay"]], e_rev=[props["e_rev"]],
+                                weight=props["weight"], ncons=props["ncons"], nsyns=props["nsyns"],
+                                post_seg_group=props["post_seg_group"])
+            else:  # boundled synapse
+                proj = add_proj(nml_doc, network,
+                                projID, prepop, postpop,
+                                tau_rise=[props["tau_rise_A"], props["tau_rise_B"]],
+                                tau_decay=[props["tau_decay_A"], props["tau_decay_B"]],
+                                e_rev=[props["e_rev_A"], props["e_rev_B"]],
+                                weight=props["weight"], ncons=props["ncons"], nsyns=props["nsyns"],
+                                post_seg_group=props["post_seg_group"])            
+            num_cons += len(proj[0].connection_wds)
+                                        
+        print("Cells connected; #connections:%i "%num_cons)
         
     
     # save to file
-    nml_fName = "%s.net.nml"%network.id
-    if scale > 1000:
+    nml_fName = "%s.net.nml%s"%(network.id, ".h5" if format_=="hdf5" else "")
+    if format_ == "xml":  # save small networks to nml (and validate)
         oc.save_network(nml_doc, nml_fName,
                         validate=True, format="xml", use_subfolder=False)
-    else:
+        #pynml.run_jneuroml("-validate", nml_fName, "", max_memory="8G", verbose=True)  # increase heap size if necessary!
+    else:  # save big networks to h5 file
         oc.save_network(nml_doc, nml_fName,
-                        validate=False, format="xml", use_subfolder=False)
-        
+                        validate=False, format=format_, use_subfolder=False)
+                                
+    return nml_doc, network, nml_fName, dPops
 
 
-    if generate_LEMS:
+def generate_lems(nml_doc, network, nml_fName, dPops, duration=100, dt=0.01):
+    """generates lems simulation (and specifies savings - spikes + 5 random traces for pops)"""
     
-        """ comment this back if the laset NetPyNE is on NSG and spikes get saved
-        # dictionary to specify saving (voltage traces)
-        max_traces = 5
-        save_traces= {}        
-        for pop_name, pop in dPops.iteritems():   
+    # dictionary to specify saving (voltage traces)
+    mt_ = 5; ms_PC = 300  # max traces to save, max PCs for spike saving (to spare memory on NSG)
+    save_traces= {}; spike_save_pops = []; save_PCspikes = {}      
+    for cell_type, pop in dPops.iteritems():
+    
+        if cell_type not in ["ca3", "ec"]:
+            # save traces
             f_ = "Sim_%s.%s.v.dat"%(nml_doc.id, pop.component)
-            save_traces[f_] = []
-            if pop.get_size() < max_traces:  # check if there are enough cells in pop to save
-                max_traces = pop.get_size()
+            save_traces[f_] = []            
+            max_traces = mt_ if pop.get_size() >= mt_ else pop.get_size()
             for i in range(0, max_traces):
                 quantity = "%s/%i/%s/v"%(pop.id, i, pop.component)
                 save_traces[f_].append(quantity)
-        """
-        
-        lems_fName = oc.generate_lems_simulation(nml_doc, network, nml_fName,
-                                                 duration=duration, dt=dt,                                                 
-                                                 gen_saves_for_all_v=True,  # needed if using current (on NSG) NetPyNE to get spikes
-                                                 #gen_saves_for_quantities=save_traces,
-                                                 gen_spike_saves_for_all_somas=True,  # will work only with the latest jNeuroML_NetPyNE (not on NSG to date: 16.08.2017)
-                                                 lems_file_name="LEMS_%s.xml"%network.id,
-                                                 include_extra_lems_files=["PyNN.xml"],  # to include SpikeSourcePoisson
-                                                 simulation_seed=12345)
-                                          
-    else:
-        lems_fName = None
+            
+            # save spikes   
+            if cell_type != "poolosyn":
+                spike_save_pops.append(pop.id)
+            else:
+                s_ = "Sim_%s.%s.spikes"%(nml_doc.id, pop.component)
+                save_PCspikes[s_] = []
+                max_spikes = ms_PC if pop.get_size() >= ms_PC else pop.get_size()
+                for i in range(0, max_spikes):
+                    save_PCspikes[s_].append("%s/%i/%s"%(pop.id, i, pop.component))
+                
+               
+    lems_fName = oc.generate_lems_simulation(nml_doc, network, nml_fName,
+                                             duration=duration, dt=dt,
+                                             include_extra_lems_files=["PyNN.xml"],  # to include SpikeSourcePoisson
+                                             gen_plots_for_all_v=False,
+                                             gen_saves_for_all_v=False,                            
+                                             gen_saves_for_quantities=save_traces,  # save a few traces for every population
+                                             gen_spike_saves_for_all_somas=False,  # don't save ca3, ec spikes (just because they take memory)
+                                             gen_spike_saves_for_cells=save_PCspikes,  # save only "some" PC spikes
+                                             gen_spike_saves_for_only_populations=spike_save_pops,  # save spikes for other populations                               
+                                             lems_file_name="LEMS_%s%s.xml"%(network.id, "_h5" if ".h5" in nml_fName else ""),
+                                             simulation_seed=12345)
         
     return lems_fName
+  
 
+def generate_instance(scale, duration, format_, run_simulation, simulator, generate_LEMS = True):
+    """helper function to make automated testing easier"""
 
-if __name__ == "__main__":
-
-    try:
-        scale = int(sys.argv[1])       
-    except:
-        scale = 100000     
-    try:
-        run_simulation = sys.argv[2]    
-    except:
-        run_simulation = False
-    try:
-        simulator = sys.argv[3]
-    except:
-        simulator = "NEURON"
-    
     networkID = "HippocampalNet_scale%i_oc"%scale
-    lems_fName = generate_hippocampal_net(networkID=networkID,
-                                          scale=scale,
-                                          generate_LEMS=True)
     
+    # generate network
+    nml_doc, network, nml_fName, dPops = generate_hippocampal_net(networkID=networkID,
+                                                                  scale=scale,
+                                                                  duration=duration,
+                                                                  format_=format_)
+    # generate LEMS simulation                                                
+    if generate_LEMS:
+        lems_fName = generate_lems(nml_doc, network, nml_fName, dPops, duration=duration)
+    else:
+        lems_fName = None
+
+
     if lems_fName and run_simulation:
         if simulator == "NEURON":
             oc.simulate_network(lems_fName, simulator="jNeuroML_%s"%simulator,
@@ -377,5 +411,35 @@ if __name__ == "__main__":
                                 max_memory="5G", num_processors=mp.cpu_count())
         else:
             raise Exception("simulator:%s is not yet implemented"%simulator)
+
+
+if __name__ == "__main__":
+
+    if len(sys.argv)==2 and sys.argv[1] == "-test":
+        
+        generate_instance(100000, 500, "xml", False, None)
+        generate_instance(10000, 100, "xml", False, None)
+        generate_instance(1000, 100, "hdf5", False, None)
+
+    else:
+        try:
+            scale = int(sys.argv[1])       
+        except:
+            scale = 100000
+        format_ = "hdf5" if scale < 2000 else "xml"   
+        
+        try:
+            run_simulation = sys.argv[2]    
+        except:
+            run_simulation = False
+        try:
+            simulator = sys.argv[3]
+        except:
+            simulator = "NEURON"
+
+        duration = 500  # ms
+        
+        generate_instance(scale, duration, format_, run_simulation, simulator)
+
 
 
